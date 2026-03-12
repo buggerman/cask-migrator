@@ -23,6 +23,14 @@ Once migrated, you can:
 
 ## Usage
 
+Run directly without downloading:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/buggerman/cask-migrator/master/cask-migrator.sh)
+```
+
+Or download and run:
+
 ```bash
 ./cask-migrator.sh
 ```
