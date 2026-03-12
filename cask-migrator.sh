@@ -6,14 +6,14 @@ remove=false
 searchdir="/Applications"
 installdir="/Applications"
 
-while getopts ":d:id:fhr" opt; do
+while getopts ":d:i:fhr" opt; do
     case ${opt} in
         h|:|\? )
             echo "Options"
             echo "  -f          Don't ask for confirmation for each application (Probably a bad idea)."
             echo "  -r          Permanently remove old applications. By default just moves to trash"
-            echo "  -d [dir]    Search directory for .app files. Default: /Applications" 
-            echo "  -id [dir]   Install directory for cask. Default: /Applications"
+            echo "  -d [dir]    Search directory for .app files. Default: /Applications"
+            echo "  -i [dir]    Install directory for cask. Default: /Applications"
             echo "  -h          Print this help message and exit."
             exit 0
             ;;
@@ -24,32 +24,31 @@ while getopts ":d:id:fhr" opt; do
             remove=true
             ;;
         d )
-            dir=$OPTARG
+            searchdir=$OPTARG
             ;;
-        id )
+        i )
             installdir=$OPTARG
             ;;
     esac
 done
-shift $(( OPTIND - 1))
+shift $(( OPTIND - 1 ))
 
 # store list of installed casks for fast access
-installed=$(brew cask list)
+installed=$(brew list --cask 2>/dev/null)
 
-for filename in $searchdir/*.app; do
+shopt -s nullglob
+for filename in "$searchdir"/*.app; do
     # extract appname from filename
     appname="$(basename "$filename" .app | tr '[:upper:]' '[:lower:]' | tr ' ' '-')"
 
     # check if already installed by cask
-    echo $installed | grep $appname &> /dev/null
-    if [ $? == 0 ]; then
+    if echo "$installed" | grep -qFx "$appname"; then
         echo "$appname already installed by cask"
         continue
     fi
 
     # check if cask is available to install
-    brew cask info $appname &> /dev/null
-    if [ $? != 0 ]; then
+    if ! brew info --cask "$appname" &> /dev/null; then
         continue
     fi
 
@@ -63,12 +62,30 @@ for filename in $searchdir/*.app; do
     fi
 
     echo "Installing $appname..."
-    if $remove; then
-        rm $filename
-    else
-        mv $filename ~/.Trash
+
+    # try adopting the existing app in-place first (no files removed)
+    if brew install --cask --adopt "$appname" --appdir="$installdir" 2>/dev/null; then
+        echo "$appname adopted successfully."
+        continue
     fi
 
-    brew cask install $appname --appdir=$installdir
+    # adopt failed (version mismatch etc.), fall back to remove-then-install
+    echo "Adopt failed for $appname, falling back to reinstall..."
+    if $remove; then
+        rm -rf "$filename"
+    else
+        if ! mv "$filename" ~/.Trash; then
+            echo "Error: could not move $filename to Trash. Skipping." >&2
+            continue
+        fi
+    fi
+
+    if ! brew install --cask "$appname" --appdir="$installdir"; then
+        echo "Error: brew install failed for $appname." >&2
+        if ! $remove; then
+            echo "Restoring $appname from Trash..." >&2
+            mv ~/.Trash/"$(basename "$filename")" "$filename"
+        fi
+    fi
 
 done
